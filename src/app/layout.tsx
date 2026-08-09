@@ -26,23 +26,27 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const baiduAnalyticsId = process.env.NEXT_PUBLIC_BAIDU_ANALYTICS_ID;
+
   return (
     <html lang="zh" className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
-        <Script
-          strategy="afterInteractive"
-          id="baidu-analytics"
-        >
-          {`
-            var _hmt = _hmt || [];
-            (function() {
-              var hm = document.createElement("script");
-              hm.src = "https://hm.baidu.com/hm.js?e4ffdb3aec5f6631da9c909d84d36832";
-              var s = document.getElementsByTagName("script")[0]; 
-              s.parentNode.insertBefore(hm, s);
-            })();
-          `}
-        </Script>
+        {baiduAnalyticsId && (
+          <Script
+            strategy="afterInteractive"
+            id="baidu-analytics"
+          >
+            {`
+              var _hmt = _hmt || [];
+              (function() {
+                var hm = document.createElement("script");
+                hm.src = "https://hm.baidu.com/hm.js?${baiduAnalyticsId}";
+                var s = document.getElementsByTagName("script")[0]; 
+                s.parentNode.insertBefore(hm, s);
+              })();
+            `}
+          </Script>
+        )}
       </head>
       <body>
         <AntdRegistry>

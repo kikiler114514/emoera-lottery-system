@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { Card, Typography, Spin, App, Button, Input, Space } from 'antd';
 import { CopyOutlined, LinkOutlined } from '@ant-design/icons';
 import QRCode from 'qrcode';
@@ -31,8 +32,8 @@ export default function QRCodeGenerator({ url, title = "扫码参与", descripti
           errorCorrectionLevel: 'M'
         });
         setQrCodeUrl(qrCode);
-      } catch (error) {
-        console.error('Error generating QR code:', error);
+      } catch (err) {
+        console.error('Error generating QR code:', err);
         message.error('生成二维码失败');
       } finally {
         setLoading(false);
@@ -42,14 +43,14 @@ export default function QRCodeGenerator({ url, title = "扫码参与", descripti
     if (url) {
       generateQRCode();
     }
-  }, [url]);
+  }, [url, message]);
 
   // 复制链接到剪贴板
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(url);
       message.success('链接已复制到剪贴板');
-    } catch (error) {
+    } catch {
       // 如果现代API失败，尝试使用传统方法
       try {
         const textArea = document.createElement('textarea');
@@ -102,9 +103,11 @@ export default function QRCodeGenerator({ url, title = "扫码参与", descripti
               marginBottom: '20px'
             }}
           >
-            <img 
+            <Image 
               src={qrCodeUrl} 
               alt="QR Code" 
+              width={200}
+              height={200}
               style={{ 
                 display: 'block',
                 borderRadius: '4px'

@@ -1,19 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, Table, Typography, Tag, Button, Space, Input, message, Tabs } from 'antd';
+import { useState, useEffect, useCallback } from 'react';
+import { Card, Table, Typography, Tag, Button, Space, Input, message, Tabs, Popconfirm } from 'antd';
 import { useRouter } from 'next/navigation';
-import { ReloadOutlined, HomeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, HomeOutlined, DeleteOutlined } from '@ant-design/icons';
 import styles from './history.module.css';
+import type { LocalCreatedRoom } from '@/lib/room-utils';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
-
-interface User {
-  key: string;
-  name: string;
-  department: string;
-}
 
 interface LotteryRecord {
   id: number;
@@ -49,24 +44,19 @@ interface RoomRecord {
   total_rounds: number;
 }
 
-interface LocalCreatedRoom {
-  roomId: string;
-  createdAt: number;
-}
-
 interface MyCreatedRoomInfo extends RoomRecord {
   localCreatedAt: number;
 }
 
 export default function HistoryPage() {
   const router = useRouter();
-  
+
   const [localCreatedRooms, setLocalCreatedRooms] = useState<LocalCreatedRoom[]>([]);
   const [myCreatedRoomsInfo, setMyCreatedRoomsInfo] = useState<MyCreatedRoomInfo[]>([]);
-  const [myLotteryRecords, setMyLotteryRecords] = useState<LotteryRecord[]>([]);
   const [groupedLotteryRecords, setGroupedLotteryRecords] = useState<GroupedLotteryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
 
   // 从 localStorage 获取本地创建的房间
   useEffect(() => {
@@ -77,13 +67,14 @@ export default function HistoryPage() {
       // 根据本地保存的房间ID获取相关信息
       fetchMyData(rooms);
     }
+    // fetchMyData is stable (useCallback with [] deps)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 获取我的数据（房间信息和抽奖记录）
-  const fetchMyData = async (localRooms: LocalCreatedRoom[]) => {
+  const fetchMyData = useCallback(async (localRooms: LocalCreatedRoom[]) => {
     if (localRooms.length === 0) {
       setMyCreatedRoomsInfo([]);
-      setMyLotteryRecords([]);
       setGroupedLotteryRecords([]);
       return;
     }
@@ -112,12 +103,9 @@ export default function HistoryPage() {
         
         // 处理抽奖记录
         if (data.lotteryRecords) {
-          setMyLotteryRecords(data.lotteryRecords);
-          // 按房间和轮次分组
           const grouped = groupLotteryRecords(data.lotteryRecords);
           setGroupedLotteryRecords(grouped);
         } else {
-          setMyLotteryRecords([]);
           setGroupedLotteryRecords([]);
         }
       } else {
@@ -129,7 +117,7 @@ export default function HistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // 按房间和轮次分组抽奖记录
   const groupLotteryRecords = (records: LotteryRecord[]): GroupedLotteryRecord[] => {
@@ -170,6 +158,30 @@ export default function HistoryPage() {
   // 刷新数据
   const refreshData = () => {
     fetchMyData(localCreatedRooms);
+  };
+
+  // 删除房间
+  const handleDeleteRoom = async (roomId: string) => {
+    setDeletingRoomId(roomId);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+      if (res.ok) {
+        message.success('房间已删除');
+        // 从 localStorage 中也移除
+        const updatedRooms = localCreatedRooms.filter(r => r.roomId !== roomId);
+        localStorage.setItem('myCreatedRooms', JSON.stringify(updatedRooms));
+        setLocalCreatedRooms(updatedRooms);
+        // 重新拉取数据
+        fetchMyData(updatedRooms);
+      } else {
+        const data = await res.json().catch(() => ({ detail: '删除失败' }));
+        message.error(data.detail || '删除失败');
+      }
+    } catch {
+      message.error('网络错误，删除失败');
+    } finally {
+      setDeletingRoomId(null);
+    }
   };
 
   // 房间信息表格列
@@ -223,14 +235,33 @@ export default function HistoryPage() {
        title: '操作',
        key: 'actions',
        render: (record: MyCreatedRoomInfo) => (
-         <Button
-           size="small"
-           type="primary"
-           icon={<HomeOutlined />}
-           onClick={() => router.push(`/room/${record.room_id}`)}
-         >
-           进入房间
-         </Button>
+         <Space>
+           <Button
+             size="small"
+             type="primary"
+             icon={<HomeOutlined />}
+             onClick={() => router.push(`/room/${record.room_id}`)}
+           >
+             进入房间
+           </Button>
+           <Popconfirm
+             title="确认删除"
+             description={`确定要删除房间「${record.name}」吗？所有参与者、中奖记录将被一并删除，且不可恢复。`}
+             onConfirm={() => handleDeleteRoom(record.room_id)}
+             okText="确认删除"
+             cancelText="取消"
+             okButtonProps={{ danger: true }}
+           >
+             <Button
+               size="small"
+               danger
+               icon={<DeleteOutlined />}
+               loading={deletingRoomId === record.room_id}
+             >
+               删除
+             </Button>
+           </Popconfirm>
+         </Space>
        ),
      },
   ];

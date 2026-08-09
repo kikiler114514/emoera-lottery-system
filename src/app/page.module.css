@@ -249,12 +249,6 @@ a.secondary {
   gap: 1rem;
 }
 
-.historyButton {
-  font-size: 1rem;
-  padding: 0;
-  height: auto;
-}
-
 .confirmList {
   margin: 1rem 0;
   padding-left: 1.5rem;

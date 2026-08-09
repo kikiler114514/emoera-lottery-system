@@ -2,50 +2,50 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { Menu, Button, Space, App } from 'antd';
-import { FileTextOutlined, PlusOutlined } from '@ant-design/icons';
+import { FileTextOutlined, PlusOutlined, ArrowLeftOutlined, HomeOutlined } from '@ant-design/icons';
 import styles from './styles.module.css';
 import Image from 'next/image';
-
-interface LocalCreatedRoom {
-  roomId: string;
-  createdAt: number;
-}
-
-// 生成随机房间ID
-function generateRoomId() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// 保存房间创建记录到本地存储
-function saveRoomCreationRecord(roomId: string) {
-  try {
-    const existingRooms: LocalCreatedRoom[] = JSON.parse(localStorage.getItem('myCreatedRooms') || '[]');
-    
-    // 检查是否已存在
-    const exists = existingRooms.some((room: LocalCreatedRoom) => room.roomId === roomId);
-    if (!exists) {
-      const newRoom: LocalCreatedRoom = {
-        roomId: roomId,
-        createdAt: Date.now(),
-      };
-      
-      const updatedRooms = [newRoom, ...existingRooms].slice(0, 50); // 保留最近50个房间
-      localStorage.setItem('myCreatedRooms', JSON.stringify(updatedRooms));
-    }
-  } catch (error) {
-    console.error('Failed to save room creation record:', error);
-  }
-}
+import { generateRoomId, saveRoomCreationRecord } from '@/lib/room-utils';
 
 export function Navbar() {
   const { modal } = App.useApp();
   const pathname = usePathname();
   const router = useRouter();
+
+  // 报名页：简化导航（返回 + 标题 + 首页）
+  const isRegisterPage = pathname.startsWith('/register');
+
+  const goBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push('/');
+    }
+  };
+
+  if (isRegisterPage) {
+    return (
+      <nav className={styles.navbar} aria-label="报名页导航">
+        <div className={styles.registerContainer}>
+          <button
+            className={styles.registerNavBtn}
+            onClick={goBack}
+            aria-label="返回上一页"
+          >
+            <ArrowLeftOutlined />
+          </button>
+          <span className={styles.registerNavTitle}>参与抽奖</span>
+          <button
+            className={styles.registerNavBtn}
+            onClick={() => router.push('/')}
+            aria-label="返回首页"
+          >
+            <HomeOutlined />
+          </button>
+        </div>
+      </nav>
+    );
+  }
 
   const menuItems = [
     {
@@ -55,6 +55,10 @@ export function Navbar() {
     {
       key: '/history',
       label: '历史记录',
+    },
+    {
+      key: '/activities',
+      label: '活动',
     },
   ];
 
@@ -86,7 +90,14 @@ export function Navbar() {
   return (
     <nav className={styles.navbar}>
       <div className={styles.container}>
-        <div className={styles.logo} onClick={() => router.push('/')}>
+        <div
+          className={styles.logo}
+          role="button"
+          tabIndex={0}
+          aria-label="返回首页"
+          onClick={() => router.push('/')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push('/'); } }}
+        >
           <Image
             src="/choujiang.png"
             alt="E时代抽奖"
@@ -118,6 +129,7 @@ export function Navbar() {
             icon={<FileTextOutlined />}
             href="https://docs.qq.com/aio/DVHZpRFFTdUVIYlV2?p=1DpcFCoxfrdnDemGI2ze7F"
             target="_blank"
+            rel="noopener noreferrer"
             className={styles.changelogButton}
           >
             更新日志

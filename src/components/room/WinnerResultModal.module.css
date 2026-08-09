@@ -1,0 +1,142 @@
+/* ===== WinnerResultModal 简约蓝白风 ===== */
+
+.modal {
+  /* override antd modal defaults */
+}
+
+.modal :global(.ant-modal-content) {
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+}
+
+.modal :global(.ant-modal-body) {
+  padding: 0;
+}
+
+.container {
+  padding: 40px 48px;
+  background: #fff;
+  text-align: center;
+}
+
+.header {
+  margin-bottom: 28px;
+}
+
+.title {
+  margin: 0 0 16px !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  color: #1a1a2e !important;
+}
+
+.prizeBadge {
+  display: inline-block;
+  padding: 6px 20px;
+  background: #e6f4ff;
+  border: 1px solid #91d5ff;
+  border-radius: 999px;
+  color: #1890ff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.winnerCount {
+  font-size: 16px;
+  color: #595959;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.winnerList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+  margin: 0 auto 28px;
+}
+
+.winnerItem {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  animation: slideInScale 0.4s ease-out both;
+}
+
+.winnerItem:nth-child(1) { animation-delay: 0s; }
+.winnerItem:nth-child(2) { animation-delay: 0.1s; }
+.winnerItem:nth-child(3) { animation-delay: 0.2s; }
+.winnerItem:nth-child(4) { animation-delay: 0.3s; }
+.winnerItem:nth-child(5) { animation-delay: 0.4s; }
+.winnerItem:nth-child(6) { animation-delay: 0.5s; }
+.winnerItem:nth-child(7) { animation-delay: 0.6s; }
+.winnerItem:nth-child(8) { animation-delay: 0.7s; }
+
+.rankCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1890ff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.winnerName {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a2e;
+  flex: 1;
+  text-align: left;
+}
+
+.winnerDept {
+  font-size: 13px;
+  color: #8c8c8c;
+  flex-shrink: 0;
+}
+
+.footer {
+  margin-top: 8px;
+}
+
+.footerText {
+  font-size: 14px;
+  color: #8c8c8c;
+  margin-bottom: 20px;
+}
+
+.closeButton {
+  height: 44px;
+  padding: 0 40px;
+  font-size: 16px;
+  font-weight: 600;
+  background: #1890ff;
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.closeButton:hover {
+  background: #40a9ff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+@keyframes slideInScale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}

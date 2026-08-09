@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .. import auth
 from ..database import get_db
 from .. import models
 from . import events
@@ -34,8 +35,13 @@ def list_users(roomId: str, db: Session = Depends(get_db)):
 
 
 @router.post("/users")
-def register_user(payload: UserRegister, db: Session = Depends(get_db)):
-    """报名入口（公开，参与者扫码报名用）。"""
+def register_user(
+    payload: UserRegister,
+    request: Request,
+    user: auth.UserIdentity = Depends(auth.require_auth),
+    db: Session = Depends(get_db),
+):
+    """报名入口（公开，参与者扫码报名用）。未登录限报 1 人。"""
     name = (payload.name or "").strip()
     room_id = payload.roomId
     if not name or not room_id:
@@ -55,28 +61,40 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="User already registered in this room")
 
-    user = models.User(
+    # 未登录用户：限报 1 人
+    if not user.is_authenticated:
+        user_count = db.execute(
+            text("SELECT COUNT(*) FROM users WHERE room_id = :rid"),
+            {"rid": rid},
+        ).scalar()
+        if user_count >= auth.settings.MAX_NONLOGIN_PARTICIPANTS:
+            raise HTTPException(
+                status_code=403,
+                detail="未登录用户最多报名 1 人，请登录后添加更多",
+            )
+
+    user_obj = models.User(
         name=name,
         department=(payload.department or "").strip() or None,
         room_id=rid,
     )
-    db.add(user)
+    db.add(user_obj)
     db.execute(
         text("UPDATE rooms SET total_users = total_users + 1 WHERE id = :rid"),
         {"rid": rid},
     )
+    auth.touch_room_last_used(room_id, db)
     try:
         db.commit()
-        db.refresh(user)
+        db.refresh(user_obj)
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to register user")
-    # 参与者报名后，让房间内所有人（含管理员）实时看到新增
-    events.publish(room_id, "users_updated", {"action": "register", "name": name, "userId": user.id})
+    events.publish(room_id, "users_updated", {"action": "register", "name": name, "userId": user_obj.id})
     return {
         "success": True,
         "message": "User registered successfully",
-        "userId": user.id,
+        "userId": user_obj.id,
     }
 
 
@@ -84,13 +102,20 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
 def delete_user(
     userId: int,
     roomId: str,
+    user: auth.UserIdentity = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
+    """删除参与者（仅房间创建者可删）。"""
     room = db.execute(
-        text("SELECT id FROM rooms WHERE room_id = :rid"), {"rid": roomId}
+        text("SELECT id, creator_id FROM rooms WHERE room_id = :rid"),
+        {"rid": roomId},
     ).mappings().first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+
+    if not auth.check_room_owner(roomId, user, db):
+        raise HTTPException(status_code=403, detail="只有房间创建者才能删除参与者")
+
     rid = room["id"]
 
     # 先检查该用户是否中过奖（delete 后无法查询）
@@ -116,6 +141,7 @@ def delete_user(
             text("UPDATE rooms SET current_winners = GREATEST(current_winners - :c, 0) WHERE id = :rid"),
             {"c": winner_decrement, "rid": rid},
         )
+    auth.touch_room_last_used(roomId, db)
     db.commit()
     events.publish(roomId, "users_updated", {"action": "delete", "userId": userId})
     return {"success": True, "message": "User deleted successfully"}

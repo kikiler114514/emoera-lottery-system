@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Card, InputNumber, Switch, Table, Row, Col, Input, Spin } from 'antd';
+import { Button, Card, InputNumber, Switch, Table, Row, Col, Input, Spin, Tooltip } from 'antd';
 import { ClearOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { User } from '@/lib/types';
@@ -17,11 +17,11 @@ interface LotteryPanelProps {
   wheelCandidates: WheelCandidate[];
   wheelWinners: WheelCandidate[];
   onWheelComplete: () => void;
-  /** 每次抽奖递增，强制 Wheel 重新挂载避免 React 复用导致 effect 不触发 */
   wheelKey?: number;
   availableCount: number;
   currentWinners: User[];
   allWinners: User[];
+  isOwner: boolean;
   onDraw: () => void;
   onClearWinners: () => void;
 }
@@ -61,6 +61,7 @@ export default function LotteryPanel({
   availableCount,
   currentWinners,
   allWinners,
+  isOwner,
   onDraw,
   onClearWinners,
 }: LotteryPanelProps) {
@@ -124,14 +125,17 @@ export default function LotteryPanel({
                 </div>
               )
             ) : (
-              <Button
-                type="primary"
-                size="large"
-                onClick={onDraw}
-                style={{ marginBottom: 16 }}
-              >
-                开始抽奖
-              </Button>
+              <Tooltip title={isOwner ? '' : '只有房间创建者才能抽奖'}>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={onDraw}
+                  disabled={!isOwner}
+                  style={{ marginBottom: 16 }}
+                >
+                  开始抽奖
+                </Button>
+              </Tooltip>
             )}
           </div>
         </Card>
@@ -141,13 +145,15 @@ export default function LotteryPanel({
         <Card
           title="本次中奖名单"
           extra={
-            <Button
-              icon={<ClearOutlined />}
-              onClick={onClearWinners}
-              danger
-            >
-              清空记录
-            </Button>
+            isOwner && (
+              <Button
+                icon={<ClearOutlined />}
+                onClick={onClearWinners}
+                danger
+              >
+                清空记录
+              </Button>
+            )
           }
         >
           <Table

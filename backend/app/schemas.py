@@ -52,3 +52,8 @@ class WinnerOut(BaseModel):
 class ActivityCreate(BaseModel):
     name: str
     description: Optional[str] = None
+
+
+class ActivityUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None

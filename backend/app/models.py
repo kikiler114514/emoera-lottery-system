@@ -21,6 +21,9 @@ class Activity(Base):
     activity_id = Column(String(50), nullable=False, unique=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
+    creator_id = Column(String(100), nullable=False, default="")
+    creator_name = Column(String(100), nullable=False, default="")
+    last_used_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP,
@@ -33,6 +36,7 @@ class Activity(Base):
     __table_args__ = (
         Index("idx_activity_id", "activity_id"),
         Index("idx_activity_created", "created_at"),
+        Index("idx_activity_creator", "creator_id"),
         _TABLE_ARGS,
     )
 
@@ -47,12 +51,15 @@ class Room(Base):
     activity_id = Column(
         Integer, ForeignKey("activities.id", ondelete="SET NULL"), nullable=True
     )
+    creator_id = Column(String(100), nullable=False, default="")
+    creator_name = Column(String(100), nullable=False, default="")
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP,
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
+    last_used_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     total_users = Column(Integer, default=0)
     current_winners = Column(Integer, default=0)
 
@@ -61,6 +68,8 @@ class Room(Base):
     __table_args__ = (
         Index("idx_room_id", "room_id"),
         Index("idx_created_at", "created_at"),
+        Index("idx_room_creator", "creator_id"),
+        Index("idx_last_used", "last_used_at"),
         _TABLE_ARGS,
     )
 

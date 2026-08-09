@@ -51,12 +51,42 @@ def _ensure_rooms_activity_id(engine) -> None:
         print("Migrated: added rooms.activity_id column")
 
 
+def _ensure_creator_columns(engine) -> None:
+    """自愈：给 rooms/activities 表补充 creator_id / creator_name / last_used_at 列。"""
+    patches = {
+        "rooms": [
+            ("creator_id", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("creator_name", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("last_used_at", "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP"),
+        ],
+        "activities": [
+            ("creator_id", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("creator_name", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("last_used_at", "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP"),
+        ],
+    }
+    with engine.connect() as conn:
+        for table, columns in patches.items():
+            for col_name, col_def in columns:
+                existing = conn.execute(
+                    text(f"SHOW COLUMNS FROM {table} LIKE :col"),
+                    {"col": col_name},
+                ).first()
+                if existing is None:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"
+                    ))
+                    print(f"Migrated: added {table}.{col_name}")
+        conn.commit()
+
+
 def init_database():
     """建表（与 Node 版 schema 保持一致），并补齐存量库的 schema drift。"""
     from . import models  # noqa: F401 确保模型已注册
 
     Base.metadata.create_all(bind=engine)
     _ensure_rooms_activity_id(engine)
+    _ensure_creator_columns(engine)
     print("Database initialized successfully")
 
 

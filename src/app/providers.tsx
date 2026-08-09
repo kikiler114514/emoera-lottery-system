@@ -2,6 +2,7 @@
 
 import { App, ConfigProvider } from 'antd';
 import { ReactNode } from 'react';
+import { AuthProvider } from '@/lib/auth-context';
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -12,7 +13,11 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       }}
     >
-      <App>{children}</App>
+      <App>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </App>
     </ConfigProvider>
   );
 } 

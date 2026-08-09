@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional
 
+from .. import auth
 from ..database import get_db
 from .. import models
 from . import events
@@ -30,15 +31,17 @@ def list_rooms(db: Session = Depends(get_db)):
 @router.post("/rooms")
 def create_or_get_room(
     payload: RoomCreate,
+    user: auth.UserIdentity = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
     room_id = payload.roomId
     if not room_id or not isinstance(room_id, str):
         raise HTTPException(status_code=400, detail="Valid room ID is required")
 
+    # 已有房间：直接返回（任何人可获取）
     existing = db.execute(
         text("""
-            SELECT r.room_id, r.name, r.description,
+            SELECT r.room_id, r.name, r.description, r.creator_id, r.creator_name,
               (SELECT COUNT(*) FROM users WHERE room_id = r.id) as total_users,
               (SELECT COUNT(*) FROM lottery_winners WHERE room_id = r.id) as current_winners
             FROM rooms r
@@ -47,10 +50,23 @@ def create_or_get_room(
         {"rid": room_id},
     ).mappings().first()
     if existing:
+        auth.touch_room_last_used(room_id, db)
+        db.commit()
         return {"room": dict(existing), "message": "Room already exists"}
 
-    room_name = payload.name or f"抽奖房间 {room_id.upper()}"
-    description = payload.description or f"房间ID: {room_id}"
+    # 创建新房间：必须登录
+    if not user.is_authenticated:
+        raise HTTPException(status_code=401, detail="请先登录后再创建房间")
+
+    # 限额检查：每人最多 2 个房间
+    room_count = auth.count_user_rooms(user.user_id, db)
+    if room_count >= auth.settings.MAX_ROOMS_PER_USER:
+        raise HTTPException(
+            status_code=403,
+            detail=f"每人最多创建 {auth.settings.MAX_ROOMS_PER_USER} 个房间",
+        )
+
+    # 活动内限额检查：每个活动最多 10 个房间
     activity_id: Optional[int] = None
     if payload.activityId:
         act = db.execute(
@@ -59,6 +75,15 @@ def create_or_get_room(
         ).mappings().first()
         if act:
             activity_id = act["id"]
+            act_room_count = auth.count_activity_rooms(activity_id, db)
+            if act_room_count >= auth.settings.MAX_ROOMS_PER_ACTIVITY:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"每个活动最多 {auth.settings.MAX_ROOMS_PER_ACTIVITY} 个房间",
+                )
+
+    room_name = payload.name or f"抽奖房间 {room_id.upper()}"
+    description = payload.description or f"房间ID: {room_id}"
 
     room = models.Room(
         room_id=room_id,
@@ -67,6 +92,8 @@ def create_or_get_room(
         total_users=0,
         current_winners=0,
         activity_id=activity_id,
+        creator_id=user.user_id,
+        creator_name=user.user_name,
     )
     db.add(room)
     try:
@@ -82,6 +109,8 @@ def create_or_get_room(
             "room_id": room.room_id,
             "name": room.name,
             "description": room.description,
+            "creator_id": room.creator_id,
+            "creator_name": room.creator_name,
             "total_users": 0,
             "current_winners": 0,
         },
@@ -109,8 +138,14 @@ def get_room(room_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/rooms/{room_id}")
-def delete_room(room_id: str, db: Session = Depends(get_db)):
-    """删除房间，级联删除其下的所有参与者和中奖记录。"""
+def delete_room(
+    room_id: str,
+    user: auth.UserIdentity = Depends(auth.require_auth),
+    db: Session = Depends(get_db),
+):
+    """删除房间，级联删除其下的所有参与者和中奖记录（仅创建者可删）。"""
+    if not auth.check_room_owner(room_id, user, db):
+        raise HTTPException(status_code=403, detail="只有房间创建者才能删除房间")
     result = db.execute(
         text("DELETE FROM rooms WHERE room_id = :rid"),
         {"rid": room_id},

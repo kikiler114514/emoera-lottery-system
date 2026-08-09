@@ -16,6 +16,7 @@ interface ParticipantManagerProps {
   addUserLoading: boolean;
   generateUsersLoading: boolean;
   refreshing?: boolean;
+  isOwner: boolean;
   onAddUser: (values: { name: string; department?: string }) => void;
   onGenerateUsers: (values: { count: number; startFrom?: number }) => void;
   onReset: () => void;
@@ -60,6 +61,7 @@ export default function ParticipantManager({
   addUserLoading,
   generateUsersLoading,
   refreshing,
+  isOwner,
   onAddUser,
   onGenerateUsers,
   onReset,
@@ -148,73 +150,84 @@ export default function ParticipantManager({
               >
                 刷新
               </Button>
-              <Button
-                icon={<ClearOutlined />}
-                onClick={onReset}
-                danger
-              >
-                重置状态
-              </Button>
+              {isOwner && (
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={onReset}
+                  danger
+                >
+                  重置状态
+                </Button>
+              )}
             </Space>
           }
         >
           <div style={{ marginBottom: 16 }}>
-            <Form form={form} onFinish={onAddUser} layout="inline" style={{ marginBottom: 16 }}>
-              <Form.Item
-                name="name"
-                rules={[{ required: true, message: '请输入姓名' }]}
-              >
-                <Input placeholder="姓名" />
-              </Form.Item>
-              <Form.Item name="department">
-                <Input placeholder="部门（选填）" />
-              </Form.Item>
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  icon={<PlusOutlined />}
-                  loading={addUserLoading}
-                >
-                  添加
-                </Button>
-              </Form.Item>
-            </Form>
-
-            <Form
-              form={generateForm}
-              onFinish={onGenerateUsers}
-              layout="inline"
-              initialValues={{ startFrom: 1 }}
-            >
-              <Form.Item
-                name="count"
-                rules={[{ required: true, message: '请输入数量' }]}
-              >
-                <InputNumber
-                  min={1}
-                  placeholder="生成数量"
-                />
-              </Form.Item>
-              <Form.Item name="startFrom">
-                <InputNumber
-                  min={1}
-                  placeholder="起始号码"
-                />
-              </Form.Item>
-              <Form.Item>
-                <Tooltip title="批量生成序号">
-                  <Button
-                    type="default"
-                    htmlType="submit"
-                    icon={<NumberOutlined />}
-                    loading={generateUsersLoading}
+            {isOwner && (
+              <>
+                <Form form={form} onFinish={onAddUser} layout="inline" style={{ marginBottom: 16 }}>
+                  <Form.Item
+                    name="name"
+                    rules={[{ required: true, message: '请输入姓名' }]}
                   >
-                    生成序号
-                  </Button>
-                </Tooltip>
-              </Form.Item>
-            </Form>
+                    <Input placeholder="姓名" />
+                  </Form.Item>
+                  <Form.Item name="department">
+                    <Input placeholder="部门（选填）" />
+                  </Form.Item>
+                  <Form.Item>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      icon={<PlusOutlined />}
+                      loading={addUserLoading}
+                    >
+                      添加
+                    </Button>
+                  </Form.Item>
+                </Form>
+
+                <Form
+                  form={generateForm}
+                  onFinish={onGenerateUsers}
+                  layout="inline"
+                  initialValues={{ startFrom: 1 }}
+                >
+                  <Form.Item
+                    name="count"
+                    rules={[{ required: true, message: '请输入数量' }]}
+                  >
+                    <InputNumber
+                      min={1}
+                      placeholder="生成数量"
+                    />
+                  </Form.Item>
+                  <Form.Item name="startFrom">
+                    <InputNumber
+                      min={1}
+                      placeholder="起始号码"
+                    />
+                  </Form.Item>
+                  <Form.Item>
+                    <Tooltip title="批量生成序号">
+                      <Button
+                        type="default"
+                        htmlType="submit"
+                        icon={<NumberOutlined />}
+                        loading={generateUsersLoading}
+                      >
+                        生成序号
+                      </Button>
+                    </Tooltip>
+                  </Form.Item>
+                </Form>
+              </>
+            )}
+            {!isOwner && (
+              <div style={{ color: '#999', fontSize: 13, padding: '8px 0' }}>
+                💡 只有房间创建者可以添加参与者
+              </div>
+            )}
           </div>
 
           <Table

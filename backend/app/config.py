@@ -17,19 +17,30 @@ class Settings(BaseSettings):
     MYSQL_DATABASE: str
     MYSQL_SSL: bool = False
 
+    # --- Session ---
+    SESSION_SECRET: str = "dev-secret-change-in-production"
+    SESSION_MAX_AGE: int = 86400 * 7  # 7 天
+
+    # --- 限额 ---
+    MAX_ROOMS_PER_USER: int = 2
+    MAX_ACTIVITIES_PER_USER: int = 2
+    MAX_ROOMS_PER_ACTIVITY: int = 10
+    MAX_NONLOGIN_PARTICIPANTS: int = 1  # 未登录用户最多报名人数
+    ROOM_EXPIRE_DAYS: int = 3  # 长时间未使用自动删除
+
     # --- Emoera OIDC 通行证 (lotus-passport) ---
     # 本地服务示例: http://localhost:8000/api/v1
     # 生产服务:     https://accountapi.emoera.com/api
-    # 拿到 client_id / client_secret 后把 PASSPORT_ENABLED 置为 true 即可启用
-    PASSPORT_ENABLED: bool = False
+    PASSPORT_ENABLED: bool = True
     OIDC_ISSUER: str = "https://accountapi.emoera.com/api"
     OIDC_JWKS_URL: str = ""   # 缺省 = {OIDC_ISSUER}/.well-known/jwks.json
     OIDC_USERINFO_URL: str = ""  # 缺省 = {OIDC_ISSUER}/userinfo/
-    OIDC_PROVIDER: str = "github"  # 授权登录用的 provider 名（依通行证服务支持而定）
+    OIDC_PROVIDER: str = "github"  # 授权登录用的 provider 名
     OIDC_CLIENT_ID: str = ""
     OIDC_CLIENT_SECRET: str = ""
     OIDC_REDIRECT_URI: str = "http://localhost:3001/callback"
     OIDC_SCOPE: str = "openid profile email"
+    FRONTEND_URL: str = "http://localhost:3001"
 
 
 settings = Settings()

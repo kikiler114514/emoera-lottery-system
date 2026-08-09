@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .. import auth
 from ..database import get_db
 from .. import models
 from . import events
@@ -12,14 +13,22 @@ from ..schemas import LotteryDraw, LotteryReset
 router = APIRouter(tags=["lottery"])
 
 
+def _check_room_owner(room_id: str, user: auth.UserIdentity, db: Session):
+    if not auth.check_room_owner(room_id, user, db):
+        raise HTTPException(status_code=403, detail="只有房间创建者才能执行抽奖操作")
+
+
 @router.post("/lottery")
 def draw(
     payload: LotteryDraw,
+    user: auth.UserIdentity = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
     room_id = payload.roomId
     if not room_id:
         raise HTTPException(status_code=400, detail="roomId is required")
+
+    _check_room_owner(room_id, user, db)
 
     room = db.execute(
         text("SELECT id FROM rooms WHERE room_id = :rid"), {"rid": room_id}
@@ -84,32 +93,47 @@ def draw(
             text("UPDATE rooms SET current_winners = current_winners + :c WHERE id = :rid"),
             {"c": len(shuffled), "rid": rid},
         )
+        auth.touch_room_last_used(room_id, db)
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to conduct lottery: {e}")
 
-    events.publish(
-        room_id,
-        "lottery_drawn",
-        {"roundNumber": round_number, "winnerIds": [w["id"] for w in shuffled]},
-    )
+    # 广播抽奖结果（含候选人列表，供非创建者播放转盘动画）
+    all_candidates = db.execute(
+        text("SELECT id, name, department FROM users WHERE room_id = :rid"),
+        {"rid": rid},
+    ).mappings().all()
 
     winners = [
         {"id": w["id"], "name": w["name"], "department": w["department"]}
         for w in shuffled
     ]
+
+    events.publish(
+        room_id,
+        "lottery_drawn",
+        {
+            "roundNumber": round_number,
+            "winners": winners,
+            "candidates": [{"id": c["id"], "name": c["name"], "department": c["department"]} for c in all_candidates],
+        },
+    )
+
     return {"success": True, "roundNumber": round_number, "winners": winners}
 
 
 @router.put("/lottery")
 def reset_room_winners(
     payload: LotteryReset,
+    user: auth.UserIdentity = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
     room_id = payload.roomId
     if not room_id:
         raise HTTPException(status_code=400, detail="roomId is required")
+
+    _check_room_owner(room_id, user, db)
 
     room = db.execute(
         text("SELECT id FROM rooms WHERE room_id = :rid"), {"rid": room_id}
@@ -125,6 +149,7 @@ def reset_room_winners(
         db.execute(
             text("UPDATE rooms SET current_winners = 0 WHERE id = :rid"), {"rid": rid}
         )
+        auth.touch_room_last_used(room_id, db)
         db.commit()
     except Exception as e:
         db.rollback()

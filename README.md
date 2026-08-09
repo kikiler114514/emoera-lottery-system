@@ -15,6 +15,9 @@ EmoEra Lottery System（E时代抽奖）是一个基于 Next.js + FastAPI 的多
 - 实时推送：SSE 长连接，参与者报名毫秒级同步到所有房间页。
 - 活动系统：活动作为容器统一管理多轮抽奖房间，支持活动维度聚合统计。
 - 抽奖历史：记录房间创建、抽奖轮次、奖项名称和中奖者信息，支持跨页面恢复。
+- 权限系统：OIDC 通行证登录，房间/活动仅创建者可管理，抽奖仅创建者可执行。
+- 限额控制：每人最多 2 个房间、2 个活动，活动内最多 10 个房间。
+- 自动清理：3 天未使用的房间自动删除。
 - 移动端适配：报名页针对手机端做了导航和表单体验优化。
 
 ## 技术栈
@@ -22,6 +25,7 @@ EmoEra Lottery System（E时代抽奖）是一个基于 Next.js + FastAPI 的多
 - 前端：[Next.js](https://nextjs.org/) 15（App Router）+ [React](https://react.dev/) 18 + [Ant Design](https://ant.design/) 5 + TypeScript
 - 后端：[FastAPI](https://fastapi.tiangolo.com/) + [Uvicorn](https://www.uvicorn.org/) + [SQLAlchemy](https://www.sqlalchemy.org/) 2.0 + [PyMySQL](https://github.com/PyMySQL/PyMySQL)
 - 数据库：[MySQL](https://www.mysql.com/) 8.x
+- 认证：[Emoera 通行证](https://accountapi.emoera.com/)（OIDC / RS256 JWT）
 - 实时推送：Server-Sent Events（SSE）
 
 ## 本地开发
@@ -78,6 +82,15 @@ cp .env.example .env
 | `MYSQL_PASSWORD` | 是 | 数据库密码 |
 | `MYSQL_DATABASE` | 是 | 数据库名，如 `lottery` |
 | `MYSQL_SSL` | 否 | 是否启用 SSL，默认 `false` |
+| `SESSION_SECRET` | 是 | Session 签名密钥，生产环境请使用随机值 |
+| `PASSPORT_ENABLED` | 否 | 是否启用通行证登录，默认 `true`。本地开发可设为 `false` 跳过登录 |
+| `OIDC_ISSUER` | 启用时必填 | 通行证签发方地址 |
+| `OIDC_CLIENT_ID` | 启用时必填 | 通行证应用凭证 |
+| `OIDC_CLIENT_SECRET` | 启用时必填 | 通行证应用密钥 |
+| `OIDC_REDIRECT_URI` | 否 | 回调地址，默认 `http://localhost:3001/callback` |
+| `FRONTEND_URL` | 否 | 前端地址，默认 `http://localhost:3001` |
+
+> **本地开发提示**：如果没有通行证凭证，将 `PASSPORT_ENABLED` 设为 `false` 即可跳过登录，直接使用系统所有功能。
 
 > 不要提交 `.env.local`、`.env` 或任何包含真实密码的环境文件。它们已被 `.gitignore` 覆盖。
 
@@ -114,7 +127,6 @@ npm run dev
 打开 http://localhost:3001 查看应用。
 
 > 前端 API 请求走相对路径 `/api/...`，由 `next.config.ts` 的 rewrites 反向代理到后端 8001 端口。
-> SSE 事件流也走同一条代理。
 
 ## 常用脚本
 
@@ -158,6 +170,7 @@ emoera-lottery-system/
 │   │       └── WinnerResultModal.tsx   # 中奖结果弹窗
 │   │
 │   └── lib/
+│       ├── auth-context.tsx     # 登录态管理
 │       ├── room-utils.ts        # 房间 ID 生成等工具函数
 │       └── types.ts             # 前端类型定义
 │
@@ -165,19 +178,22 @@ emoera-lottery-system/
     ├── requirements.txt
     ├── .env.example             # 后端环境变量模板
     └── app/
-        ├── main.py              # FastAPI 入口，CORS，路由注册
+        ├── main.py              # FastAPI 入口，CORS，路由注册，自动清理
         ├── config.py            # 环境变量配置
         ├── database.py          # 数据库连接与初始化
         ├── models.py            # 数据模型
         ├── schemas.py           # 请求/响应模型
+        ├── auth.py              # Session 鉴权 + 权限检查
+        ├── passport.py          # OIDC JWKS 验签
         └── routers/
-            ├── rooms.py          # 房间 CRUD
+            ├── rooms.py          # 房间 CRUD + 限额
             ├── users.py          # 报名与参与者管理
             ├── manual.py         # 手动添加/批量生成
             ├── lottery.py        # 抽奖与重置
             ├── history.py        # 历史查询
             ├── events.py         # SSE 实时推送
             ├── activities.py     # 活动系统
+            ├── oidc.py           # OIDC 回调
             └── reset.py          # 重置数据库
 ```
 
@@ -185,29 +201,39 @@ emoera-lottery-system/
 
 所有业务接口挂在 `/api` 前缀下。
 
+### 认证
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/auth/login` | 获取 OIDC 授权页 URL |
+| GET | `/api/auth/callback` | OIDC 回调，签发 session |
+| GET | `/api/auth/me` | 获取当前用户信息 |
+| POST | `/api/auth/logout` | 退出登录 |
+
 ### 房间
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/rooms` | 房间列表 |
-| POST | `/api/rooms` | 创建或获取房间（幂等） |
-| DELETE | `/api/rooms/{room_id}` | 删除房间，级联删除参与者与中奖记录 |
+| POST | `/api/rooms` | 创建或获取房间（需登录，限额 2） |
+| DELETE | `/api/rooms/{room_id}` | 删除房间（仅创建者） |
 
 ### 参与者
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/users?roomId=` | 房间参与者列表 |
-| POST | `/api/users` | 报名（公开接口） |
-| POST | `/api/users/manual` | 管理员手动添加单人 |
-| PUT | `/api/users/manual` | 批量生成序号用户 |
+| POST | `/api/users` | 报名（未登录限 1 人） |
+| DELETE | `/api/users` | 删除参与者（仅创建者） |
+| POST | `/api/users/manual` | 手动添加单人（仅创建者） |
+| PUT | `/api/users/manual` | 批量生成序号用户（仅创建者） |
 
 ### 抽奖
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/lottery` | 执行抽奖 |
-| PUT | `/api/lottery` | 清空房间中奖记录并重置参与状态 |
+| POST | `/api/lottery` | 执行抽奖（仅创建者） |
+| PUT | `/api/lottery` | 清空房间中奖记录（仅创建者） |
 
 ### 历史
 
@@ -220,10 +246,10 @@ emoera-lottery-system/
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/activities` | 活动列表（含聚合统计） |
-| POST | `/api/activities` | 创建活动 |
+| POST | `/api/activities` | 创建活动（需登录，限额 2） |
 | GET | `/api/activities/{activity_id}` | 活动详情 |
-| PUT | `/api/activities/{activity_id}` | 更新活动 |
-| DELETE | `/api/activities/{activity_id}` | 删除活动 |
+| PUT | `/api/activities/{activity_id}` | 更新活动（仅创建者） |
+| DELETE | `/api/activities/{activity_id}` | 删除活动（仅创建者） |
 
 ### 实时事件
 
@@ -237,6 +263,18 @@ emoera-lottery-system/
 | --- | --- | --- |
 | GET | `/health` | 健康检查 |
 | POST | `/api/reset-db` | 重置数据库（危险操作） |
+
+## 权限系统
+
+| 操作 | 未登录 | 登录（非创建者） | 创建者 |
+|------|--------|-----------------|--------|
+| 创建房间/活动 | ❌ | ✅（限额 2） | ✅ |
+| 删除房间/活动 | ❌ | ❌ | ✅ |
+| 报名 | ✅（限 1 人） | ✅ | ✅ |
+| 手动添加/批量生成 | ❌ | ❌ | ✅ |
+| 删除参与者 | ❌ | ❌ | ✅ |
+| 抽奖 | ❌ | ❌ | ✅ |
+| 重置/清空记录 | ❌ | ❌ | ✅ |
 
 ## 部署
 
@@ -293,6 +331,9 @@ location / {
 ### 上线前检查清单
 
 - [ ] CORS `allow_origins` 从 `["*"]` 改为真实前端域名
+- [ ] `SESSION_SECRET` 换成强随机值
+- [ ] 填写 OIDC 通行证凭证（`OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`）
+- [ ] `OIDC_REDIRECT_URI` 和 `FRONTEND_URL` 改为生产域名
 - [ ] 禁用或加固 `/api/reset-db`
 - [ ] 生产环境关闭 `/docs`（Swagger UI）
 - [ ] 数据库账号只授予本库权限，不使用 root
@@ -307,7 +348,6 @@ location / {
 - 确认 Git 历史不包含 `.env`、证书、私钥、Token、云服务密钥等敏感信息。
 - 如需保留第三方统计脚本，请确认统计 ID 可以公开；否则建议改为环境变量或移除。
 - 为生产环境添加认证、授权和操作审计，尤其是删除用户、重置数据库、执行抽奖等管理操作。
-- 当前版本为内部工具场景，API 未启用认证。如需公网部署，请自行添加鉴权中间件。
 
 ## License
 

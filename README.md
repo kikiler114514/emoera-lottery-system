@@ -1,8 +1,10 @@
-# EmoEra Lottery System
+# EmoEra Lottery System (k-version)
 
 EmoEra Lottery System（E时代抽奖）是一个基于 Next.js + FastAPI 的多人抽奖系统，适合年会、活动报名、现场互动和小型运营活动。管理员可以创建抽奖房间、生成报名二维码、查看参与者列表并执行抽奖；参与者可以通过链接或二维码进入报名页。
 
-开源仓库：[github.com/miaojilab/emoera-lottery-system](https://github.com/miaojilab/emoera-lottery-system)
+本分支（k-version）在 [miaojilab/emoera-lottery-system](https://github.com/miaojilab/emoera-lottery-system) 基础上完成了通行证接入与完整权限系统改造，对应线上站点：[choujiang.emoera.com](https://choujiang.emoera.com/)。
+
+上游仓库：[github.com/miaojilab/emoera-lottery-system](https://github.com/miaojilab/emoera-lottery-system)
 
 ## 功能特性
 
@@ -83,14 +85,26 @@ cp .env.example .env
 | `MYSQL_DATABASE` | 是 | 数据库名，如 `lottery` |
 | `MYSQL_SSL` | 否 | 是否启用 SSL，默认 `false` |
 | `SESSION_SECRET` | 是 | Session 签名密钥，生产环境请使用随机值 |
-| `PASSPORT_ENABLED` | 否 | 是否启用通行证登录，默认 `true`。本地开发可设为 `false` 跳过登录 |
-| `OIDC_ISSUER` | 启用时必填 | 通行证签发方地址 |
-| `OIDC_CLIENT_ID` | 启用时必填 | 通行证应用凭证 |
-| `OIDC_CLIENT_SECRET` | 启用时必填 | 通行证应用密钥 |
-| `OIDC_REDIRECT_URI` | 否 | 回调地址，默认 `http://localhost:3001/callback` |
-| `FRONTEND_URL` | 否 | 前端地址，默认 `http://localhost:3001` |
+| `SESSION_MAX_AGE` | 否 | Session 有效期（秒），默认 7 天 |
+| `MAX_ROOMS_PER_USER` | 否 | 每人独立房间上限，默认 `2` |
+| `MAX_ACTIVITIES_PER_USER` | 否 | 每人活动上限，默认 `2` |
+| `MAX_ROOMS_PER_ACTIVITY` | 否 | 每个活动内房间上限，默认 `10` |
+| `MAX_NONLOGIN_PARTICIPANTS` | 否 | 未登录用户最多可报名人数，默认 `1` |
+| `ROOM_EXPIRE_DAYS` | 否 | 房间闲置自动删除天数，默认 `3` |
+| `PASSPORT_ENABLED` | 否 | 是否启用通行证登录，默认 `true`。本地开发可设为 `false` 启用本地自动登录 |
+| `OIDC_ISSUER` | 启用时必填 | 通行证签发方地址，默认 `https://accountapi.emoera.com/api` |
+| `OIDC_JWKS_URL` | 否 | JWKS 地址，缺省为 `{OIDC_ISSUER}/.well-known/jwks.json` |
+| `OIDC_USERINFO_URL` | 否 | 用户信息接口地址，缺省为 `{OIDC_ISSUER}/userinfo/` |
+| `OIDC_PROVIDER` | 否 | 授权登录 provider 名，默认 `github` |
+| `OIDC_CLIENT_ID` | 启用时必填 | 通行证应用 Client ID |
+| `OIDC_CLIENT_SECRET` | 启用时必填 | 通行证应用 Client Secret |
+| `OIDC_REDIRECT_URI` | 否 | OIDC 回调地址，默认 `http://localhost:3001/api/auth/callback` |
+| `OIDC_SCOPE` | 否 | OIDC 授权范围，默认 `openid profile email` |
+| `FRONTEND_URL` | 否 | 前端地址（登录成功后跳转），默认 `http://localhost:3001` |
+| `LOCAL_USER_ID` | 否 | 本地模式用户 ID，默认 `dev:314` |
+| `LOCAL_USER_NAME` | 否 | 本地模式用户名，默认 `本地开发` |
 
-> **本地开发提示**：如果没有通行证凭证，将 `PASSPORT_ENABLED` 设为 `false` 即可跳过登录，直接使用系统所有功能。
+> **本地开发快速开始**：将 `PASSPORT_ENABLED` 设为 `false`，打开页面会自动以本地身份登录（`LOCAL_USER_ID`/`LOCAL_USER_NAME`），直接拥有完整创建/抽奖/管理权限，无需配置通行证即可体验全部功能。
 
 > 不要提交 `.env.local`、`.env` 或任何包含真实密码的环境文件。它们已被 `.gitignore` 覆盖。
 
@@ -154,7 +168,8 @@ emoera-lottery-system/
 │   ├── app/
 │   │   ├── globals.css          # 全局样式 + 共享动画
 │   │   ├── layout.tsx           # 根布局，全站导航栏
-│   │   ├── page.tsx             # 首页：创建/进入房间
+│   │   ├── providers.tsx        # 全局 Provider（Antd + Auth）
+│   │   ├── page.tsx             # 首页：验证房间并创建/进入
 │   │   ├── register/            # 参与者报名页
 │   │   ├── history/             # 历史记录页
 │   │   ├── activities/          # 活动列表 + 详情页
@@ -183,7 +198,7 @@ emoera-lottery-system/
         ├── database.py          # 数据库连接与初始化
         ├── models.py            # 数据模型
         ├── schemas.py           # 请求/响应模型
-        ├── auth.py              # Session 鉴权 + 权限检查
+        ├── auth.py              # Session 鉴权 + 权限检查 + 登录/登出端点
         ├── passport.py          # OIDC JWKS 验签
         └── routers/
             ├── rooms.py          # 房间 CRUD + 限额
@@ -205,17 +220,17 @@ emoera-lottery-system/
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/auth/login` | 获取 OIDC 授权页 URL |
-| GET | `/api/auth/callback` | OIDC 回调，签发 session |
-| GET | `/api/auth/me` | 获取当前用户信息 |
-| POST | `/api/auth/logout` | 退出登录 |
+| POST | `/api/auth/login` | 登录入口。生产模式返回 OIDC 授权 URL；本地模式（`PASSPORT_ENABLED=false`）直接签发 session cookie |
+| GET | `/api/auth/callback` | OIDC 通行证回调，验证 code 后签发 session |
+| GET | `/api/auth/me` | 获取当前登录用户信息 |
+| POST | `/api/auth/logout` | 退出登录，清除 session cookie |
 
 ### 房间
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/rooms` | 房间列表 |
-| POST | `/api/rooms` | 创建或获取房间（需登录，限额 2） |
+| POST | `/api/rooms` | 创建或获取房间（需登录，独立房间限 2 个；活动内房间限每活动 10 个） |
 | DELETE | `/api/rooms/{room_id}` | 删除房间（仅创建者） |
 
 ### 参与者
@@ -268,7 +283,8 @@ emoera-lottery-system/
 
 | 操作 | 未登录 | 登录（非创建者） | 创建者 |
 |------|--------|-----------------|--------|
-| 创建房间/活动 | ❌ | ✅（限额 2） | ✅ |
+| 创建独立房间/活动 | ❌ | ✅（各限 2） | ✅ |
+| 在活动内创建房间 | ❌ | ✅（活动内限 10 个，不计入个人限额） | ✅ |
 | 删除房间/活动 | ❌ | ❌ | ✅ |
 | 报名 | ✅（限 1 人） | ✅ | ✅ |
 | 手动添加/批量生成 | ❌ | ❌ | ✅ |

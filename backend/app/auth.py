@@ -162,9 +162,10 @@ def check_activity_owner(activity_id: str, user: UserIdentity, db: Session) -> b
 
 
 def count_user_rooms(user_id: str, db: Session) -> int:
+    """统计用户创建的**独立**房间（不属于任何活动）。活动内的房间受活动限额约束，不计入个人限额。"""
     from sqlalchemy import text
     row = db.execute(
-        text("SELECT COUNT(*) FROM rooms WHERE creator_id = :uid"),
+        text("SELECT COUNT(*) FROM rooms WHERE creator_id = :uid AND activity_id IS NULL"),
         {"uid": user_id},
     ).scalar()
     return row or 0

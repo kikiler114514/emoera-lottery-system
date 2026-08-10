@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { App } from 'antd';
+import { App, Button } from 'antd';
 import { useRouter, useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import type { User, DatabaseUser, LotteryWinnerResponse, RoomInfo, HistoryLotteryRecord } from '@/lib/types';
@@ -43,10 +43,13 @@ export default function RoomPage() {
   const [wheelKey, setWheelKey] = useState(0);
   const [remoteWheelKey, setRemoteWheelKey] = useState(0);
 
+  const [roomError, setRoomError] = useState<string>('');
+
   const isOwner = user.authenticated && user.user_id === roomCreatorId;
 
   const fetchOrCreateRoom = useCallback(async () => {
     try {
+      setRoomError('');
       const response = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -61,9 +64,20 @@ export default function RoomPage() {
         });
         setRoomCreatorId(data.room.creator_id || '');
         setRoomCreatorName(data.room.creator_name || '');
+      } else {
+        const err = await response.json().catch(() => ({ detail: '获取房间失败' }));
+        // 401 未登录：本地模式下 auth-context 会自动登录，等待重试；生产模式提示用户登录
+        if (response.status === 401) {
+          setRoomError('请先登录后使用（本地模式正在自动登录，如持续显示请点右上角登录按钮）');
+        } else if (response.status === 403) {
+          setRoomError(err.detail || '没有权限创建房间');
+        } else {
+          setRoomError(err.detail || `房间错误 (${response.status})`);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch room:', error);
+      setRoomError('网络错误，请刷新重试');
     }
   }, [roomId]);
 
@@ -124,6 +138,14 @@ export default function RoomPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
+
+  // 用户登录状态变化时（比如本地自动登录完成）重新获取房间信息
+  useEffect(() => {
+    if (roomId && user.authenticated && !roomCreatorId) {
+      fetchOrCreateRoom();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.authenticated, roomId]);
 
   // SSE
   useEffect(() => {
@@ -381,6 +403,20 @@ export default function RoomPage() {
 
   return (
     <main style={{ padding: '24px', minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+      {roomError && (
+        <div style={{
+          maxWidth: '1400px', margin: '0 auto 16px', padding: '12px 16px',
+          background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, color: '#cf1322',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <span>⚠️ {roomError}</span>
+          {roomError.includes('限额') || roomError.includes('最多') ? (
+            <Button size="small" type="primary" danger onClick={() => router.push('/')}>
+              返回首页
+            </Button>
+          ) : null}
+        </div>
+      )}
       {roomCreatorName && (
         <div style={{ maxWidth: '1400px', margin: '0 auto 12px', color: '#888', fontSize: 13 }}>
           创建者：<strong style={{ color: '#1890ff' }}>{roomCreatorName}</strong>

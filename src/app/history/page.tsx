@@ -91,8 +91,15 @@ export default function HistoryPage() {
         
         // 处理房间信息
         if (data.roomRecords) {
+          const serverRoomIds = new Set(data.roomRecords.map((r: RoomRecord) => r.room_id));
+          // 清理 localStorage 中数据库已不存在的房间（防止清空/重置后旧记录还显示）
+          const validLocalRooms = localRooms.filter(lr => serverRoomIds.has(lr.roomId));
+          if (validLocalRooms.length !== localRooms.length) {
+            localStorage.setItem('myCreatedRooms', JSON.stringify(validLocalRooms));
+            setLocalCreatedRooms(validLocalRooms);
+          }
           const mergedInfo: MyCreatedRoomInfo[] = data.roomRecords.map((dbRoom: RoomRecord) => {
-            const localRoom = localRooms.find(lr => lr.roomId === dbRoom.room_id);
+            const localRoom = validLocalRooms.find(lr => lr.roomId === dbRoom.room_id);
             return {
               ...dbRoom,
               localCreatedAt: localRoom?.createdAt || 0,
@@ -167,18 +174,23 @@ export default function HistoryPage() {
       const res = await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
       if (res.ok) {
         message.success('房间已删除');
-        // 从 localStorage 中也移除
-        const updatedRooms = localCreatedRooms.filter(r => r.roomId !== roomId);
-        localStorage.setItem('myCreatedRooms', JSON.stringify(updatedRooms));
-        setLocalCreatedRooms(updatedRooms);
-        // 重新拉取数据
-        fetchMyData(updatedRooms);
       } else {
         const data = await res.json().catch(() => ({ detail: '删除失败' }));
-        message.error(data.detail || '删除失败');
+        // 404 = 房间已不存在（数据库被清空/重置），本地记录也应清理
+        if (res.status !== 404) {
+          message.error(data.detail || '删除失败');
+          setDeletingRoomId(null);
+          return;
+        }
+        message.info('房间已不存在，已从列表移除');
       }
+      // 成功或404都从本地移除
+      const updatedRooms = localCreatedRooms.filter(r => r.roomId !== roomId);
+      localStorage.setItem('myCreatedRooms', JSON.stringify(updatedRooms));
+      setLocalCreatedRooms(updatedRooms);
+      fetchMyData(updatedRooms);
     } catch {
-      message.error('网络错误，删除失败');
+      message.error('网络错误');
     } finally {
       setDeletingRoomId(null);
     }

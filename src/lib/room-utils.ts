@@ -46,3 +46,18 @@ export function getLocalCreatedRooms(): LocalCreatedRoom[] {
     return [];
   }
 }
+
+/** getCreatedRooms 是 getLocalCreatedRooms 的别名，首页使用。 */
+export function getCreatedRooms(): LocalCreatedRoom[] {
+  return getLocalCreatedRooms();
+}
+
+/** 从本地记录中删除指定房间（房间已不存在时清理用）。 */
+export function removeRoomCreationRecord(roomId: string): void {
+  try {
+    const records = getLocalCreatedRooms().filter((r) => r.roomId !== roomId);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // ignore
+  }
+}

@@ -42,5 +42,10 @@ class Settings(BaseSettings):
     OIDC_SCOPE: str = "openid profile email"
     FRONTEND_URL: str = "http://localhost:3001"
 
+    # --- 仅本地开发用（PASSPORT_ENABLED=false 时生效）---
+    # 生产环境 PASSPORT_ENABLED=true，此登录端点自动禁用，不影响通行证登录。
+    LOCAL_USER_ID: str = "dev:314"
+    LOCAL_USER_NAME: str = "本地开发"
+
 
 settings = Settings()

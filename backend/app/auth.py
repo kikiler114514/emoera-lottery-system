@@ -73,14 +73,30 @@ ANONYMOUS = UserIdentity("", "")
 
 # ── 端点 ──────────────────────────────────────────────────────
 
-@router.get("/auth/login")
-def login():
-    """返回 OIDC 授权页 URL（前端拿到后跳转）。"""
-    if not settings.PASSPORT_ENABLED:
-        raise HTTPException(status_code=503, detail="Passport not enabled")
-    from . import passport
-    state = __import__("secrets").token_urlsafe(16)
-    return {"authorization_url": passport.authorization_url(state), "state": state}
+@router.post("/auth/login")
+def login(response: Response):
+    """登录入口。生产走 OIDC 通行证；本地未启用 passport 时直接签发本地身份 cookie。"""
+    if settings.PASSPORT_ENABLED:
+        # 生产：返回 OIDC 授权 URL（前端拿到后跳转通行证）
+        from . import passport
+        state = __import__("secrets").token_urlsafe(16)
+        return {"authorization_url": passport.authorization_url(state), "state": state}
+
+    # 仅本地开发：直接签发本地身份 cookie，方便以创建者身份测试
+    cookie = make_session(settings.LOCAL_USER_ID, settings.LOCAL_USER_NAME)
+    response.set_cookie(
+        key="emoera_session",
+        value=cookie,
+        max_age=settings.SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return {
+        "local": True,
+        "user_id": settings.LOCAL_USER_ID,
+        "user_name": settings.LOCAL_USER_NAME,
+    }
 
 
 @router.get("/auth/me")

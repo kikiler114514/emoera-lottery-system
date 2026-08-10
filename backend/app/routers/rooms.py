@@ -58,29 +58,32 @@ def create_or_get_room(
     if not user.is_authenticated:
         raise HTTPException(status_code=401, detail="请先登录后再创建房间")
 
-    # 限额检查：每人最多 2 个房间
-    room_count = auth.count_user_rooms(user.user_id, db)
-    if room_count >= auth.settings.MAX_ROOMS_PER_USER:
-        raise HTTPException(
-            status_code=403,
-            detail=f"每人最多创建 {auth.settings.MAX_ROOMS_PER_USER} 个房间",
-        )
-
-    # 活动内限额检查：每个活动最多 10 个房间
+    # 先解析活动（若传了 activityId），因为限额规则依赖是否在活动内
     activity_id: Optional[int] = None
     if payload.activityId:
         act = db.execute(
-            text("SELECT id FROM activities WHERE activity_id = :aid"),
+            text("SELECT id, creator_id FROM activities WHERE activity_id = :aid"),
             {"aid": payload.activityId},
         ).mappings().first()
         if act:
             activity_id = act["id"]
+            # 活动内限额检查：每个活动最多 MAX_ROOMS_PER_ACTIVITY 个房间
             act_room_count = auth.count_activity_rooms(activity_id, db)
             if act_room_count >= auth.settings.MAX_ROOMS_PER_ACTIVITY:
                 raise HTTPException(
                     status_code=403,
                     detail=f"每个活动最多 {auth.settings.MAX_ROOMS_PER_ACTIVITY} 个房间",
                 )
+
+    # 个人限额：非活动下的独立房间每人最多 MAX_ROOMS_PER_USER 个；
+    # 活动内的房间受活动限额约束，不再叠加个人限额（否则活动创建者没法加房间）
+    if activity_id is None:
+        room_count = auth.count_user_rooms(user.user_id, db)
+        if room_count >= auth.settings.MAX_ROOMS_PER_USER:
+            raise HTTPException(
+                status_code=403,
+                detail=f"每人最多创建 {auth.settings.MAX_ROOMS_PER_USER} 个独立房间",
+            )
 
     room_name = payload.name or f"抽奖房间 {room_id.upper()}"
     description = payload.description or f"房间ID: {room_id}"
@@ -144,7 +147,14 @@ def delete_room(
     db: Session = Depends(get_db),
 ):
     """删除房间，级联删除其下的所有参与者和中奖记录（仅创建者可删）。"""
-    if not auth.check_room_owner(room_id, user, db):
+    # 先判断房间是否存在，再判断权限，避免不存在的房间误返回403
+    existing = db.execute(
+        text("SELECT creator_id FROM rooms WHERE room_id = :rid"),
+        {"rid": room_id},
+    ).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if not user.is_authenticated or existing[0] != user.user_id:
         raise HTTPException(status_code=403, detail="只有房间创建者才能删除房间")
     result = db.execute(
         text("DELETE FROM rooms WHERE room_id = :rid"),

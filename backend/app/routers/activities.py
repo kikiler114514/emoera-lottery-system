@@ -196,7 +196,14 @@ def delete_activity(
     db: Session = Depends(get_db),
 ):
     """删除活动（仅创建者可删，关联房间的 activity_id 会被置为 NULL）。"""
-    if not auth.check_activity_owner(activity_id, user, db):
+    # 先判断活动是否存在，再判断权限，避免不存在的活动误返回403
+    existing = db.execute(
+        text("SELECT creator_id FROM activities WHERE activity_id = :aid"),
+        {"aid": activity_id},
+    ).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if not user.is_authenticated or existing[0] != user.user_id:
         raise HTTPException(status_code=403, detail="只有活动创建者才能删除活动")
 
     result = db.execute(

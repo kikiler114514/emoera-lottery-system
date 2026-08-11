@@ -113,3 +113,27 @@ class LotteryWinner(Base):
         Index("idx_won_at", "won_at"),
         _TABLE_ARGS,
     )
+
+
+class AnonymousParticipant(Base):
+    """未登录报名记录：每条记录代表"某个匿名会话在某房间成功报名了一人"。
+
+    防止：
+    - 当前实现按"房间内非登录用户计数"做限额 → 房间内只要有一个用户，后续所有未登录报名 403。
+    - 修法：基于"客户端 fingerprint + room_id"做幂等记录，每个 fingerprint 在该房间
+      最多 N 人（默认 1），与房间内其它用户是否已存在无关。
+    """
+    __tablename__ = "anonymous_participants"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 浏览器指纹（cookie 值），用于唯一标记一个未登录会话
+    fingerprint = Column(String(64), nullable=False)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    __table_args__ = (
+        Index("idx_anon_room_fp", "room_id", "fingerprint"),
+        Index("idx_anon_user", "user_id"),
+        _TABLE_ARGS,
+    )

@@ -277,7 +277,7 @@ emoera-lottery-system/
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/health` | 健康检查 |
-| POST | `/api/reset-db` | 重置数据库（危险操作） |
+| POST | `/api/reset-db` | 重置数据库（默认禁用，需 `.env` 显式 `ENABLE_DB_RESET=true` 且调用方已登录） |
 
 ## 权限系统
 
@@ -286,7 +286,7 @@ emoera-lottery-system/
 | 创建独立房间/活动 | ❌ | ✅（各限 2） | ✅ |
 | 在活动内创建房间 | ❌ | ✅（活动内限 10 个，不计入个人限额） | ✅ |
 | 删除房间/活动 | ❌ | ❌ | ✅ |
-| 报名 | ✅（限 1 人） | ✅ | ✅ |
+| 报名 | ✅（同会话限 1 人） | ✅ | ✅ |
 | 手动添加/批量生成 | ❌ | ❌ | ✅ |
 | 删除参与者 | ❌ | ❌ | ✅ |
 | 抽奖 | ❌ | ❌ | ✅ |
@@ -350,7 +350,7 @@ location / {
 - [ ] `SESSION_SECRET` 换成强随机值
 - [ ] 填写 OIDC 通行证凭证（`OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`）
 - [ ] `OIDC_REDIRECT_URI` 和 `FRONTEND_URL` 改为生产域名
-- [ ] 禁用或加固 `/api/reset-db`
+- [x] `/api/reset-db` 默认 503，仅当 `ENABLE_DB_RESET=true` 且调用方已登录才放行
 - [ ] 生产环境关闭 `/docs`（Swagger UI）
 - [ ] 数据库账号只授予本库权限，不使用 root
 - [ ] 确认后端以单 worker 运行

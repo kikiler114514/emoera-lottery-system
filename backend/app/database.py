@@ -80,6 +80,24 @@ def _ensure_creator_columns(engine) -> None:
         conn.commit()
 
 
+def _backfill_orphan_rooms(engine) -> None:
+    """自愈：把历史 schema 升级前建出的无主房间（creator_id == ''）打上
+    `system:orphan` 标记，让任何登录用户在旧房间未被真正认领前也能行使管理权
+    （抽奖、删除、清空中奖记录等），避免升级后历史房间变成只读。"""
+    with engine.connect() as conn:
+        # 仅给 'creator_id' 为空字符串的旧房间打标签，不动已经有明确创建者的数据
+        result = conn.execute(
+            text(
+                "UPDATE rooms "
+                "SET creator_id = 'system:orphan', creator_name = '旧房间（待认领）' "
+                "WHERE creator_id = ''"
+            )
+        )
+        if result.rowcount:
+            print(f"Migrated: backfilled {result.rowcount} orphan rooms with system:orphan")
+        conn.commit()
+
+
 def init_database():
     """建表（与 Node 版 schema 保持一致），并补齐存量库的 schema drift。"""
     from . import models  # noqa: F401 确保模型已注册
@@ -87,6 +105,7 @@ def init_database():
     Base.metadata.create_all(bind=engine)
     _ensure_rooms_activity_id(engine)
     _ensure_creator_columns(engine)
+    _backfill_orphan_rooms(engine)
     print("Database initialized successfully")
 
 

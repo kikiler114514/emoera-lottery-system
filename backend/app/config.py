@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     MAX_NONLOGIN_PARTICIPANTS: int = 1  # 未登录用户最多报名人数
     ROOM_EXPIRE_DAYS: int = 3  # 长时间未使用自动删除
 
+    # --- 危险操作开关 ---
+    # /api/reset-db 会 drop_all + create_all，必须显式开启才允许调用；默认关闭。
+    ENABLE_DB_RESET: bool = False
+    OIDC_STATE_MAX_AGE: int = 600  # OIDC state cookie 有效期（秒）
+
+    # --- 匿名报名会话 ---
+    ANON_FP_COOKIE: str = "emoera_anon_fp"  # 浏览器 fingerprint cookie 名
+    ANON_FP_COOKIE_MAX_AGE: int = 86400 * 30  # 30 天有效
+
     # --- Emoera OIDC 通行证 (lotus-passport) ---
     # 本地服务示例: http://localhost:8000/api/v1
     # 生产服务:     https://accountapi.emoera.com/api

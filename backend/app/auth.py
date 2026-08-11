@@ -32,6 +32,14 @@ def _sign_payload(payload: dict) -> str:
 
 
 def _verify_payload(cookie: str) -> Optional[dict]:
+    """校验 session cookie 并返回 payload（uid/name/iat），无效则返回 None。
+
+    两层校验：
+    1. HMAC 签名 — 防止 cookie 内容被篡改；
+    2. iat + SESSION_MAX_AGE > now — 服务端主动判定过期。
+       仅依赖浏览器 / 反向代理的 max-age 不够稳：复制 cookie 出来、手工 replay 都
+       能绕过；服务端主动过期后即便签名正确也拒收。
+    """
     try:
         raw, sig = cookie.rsplit(".", 1)
         expected = hmac.new(
@@ -39,7 +47,12 @@ def _verify_payload(cookie: str) -> Optional[dict]:
         ).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
-        return json.loads(raw)
+        payload = json.loads(raw)
+        # 服务端过期校验
+        iat = int(payload.get("iat", 0))
+        if iat <= 0 or int(time.time()) - iat > settings.SESSION_MAX_AGE:
+            return None
+        return payload
     except Exception:
         return None
 
@@ -71,15 +84,33 @@ class UserIdentity:
 ANONYMOUS = UserIdentity("", "")
 
 
+# 历史 schema 升级时用于标记"无主房间"的固定 creator_id；详见 database._backfill_orphan_rooms。
+# 任意登录用户都能对这类房间行使管理权限（抽奖/删除/清空中奖记录），让旧数据
+# 在被真正认领前不至于变成只读。
+ROOM_ORPHAN_CREATOR_ID = "system:orphan"
+
+
 # ── 端点 ──────────────────────────────────────────────────────
 
 @router.post("/auth/login")
 def login(response: Response):
     """登录入口。生产走 OIDC 通行证；本地未启用 passport 时直接签发本地身份 cookie。"""
     if settings.PASSPORT_ENABLED:
-        # 生产：返回 OIDC 授权 URL（前端拿到后跳转通行证）
+        # 生产：返回 OIDC 授权 URL（前端拿到后跳转通行证）。
+        # 同时把 state 写到短期 HttpOnly cookie（OIDC_STATE_MAX_AGE 秒），
+        # callback 时一次性等值校验，防登录 CSRF。
         from . import passport
-        state = __import__("secrets").token_urlsafe(16)
+        import secrets
+        state = secrets.token_urlsafe(32)
+        response.set_cookie(
+            key="oidc_state",
+            value=state,
+            max_age=settings.OIDC_STATE_MAX_AGE,
+            httponly=True,
+            secure=False,  # 上线 HTTPS 时改为 True（需保证 TLS 终止在应用前）
+            samesite="lax",
+            path="/",
+        )
         return {"authorization_url": passport.authorization_url(state), "state": state}
 
     # 仅本地开发：直接签发本地身份 cookie，方便以创建者身份测试
@@ -140,6 +171,14 @@ def require_login(request: Request) -> UserIdentity:
 # ── 权限检查辅助函数 ──────────────────────────────────────────
 
 def check_room_owner(room_id: str, user: UserIdentity, db: Session) -> bool:
+    """检查 user 是不是该房间的管理者。
+
+    返回 True 的两种情况：
+    1. user.user_id == rooms.creator_id（正常情况）
+    2. rooms.creator_id == ROOM_ORPHAN_CREATOR_ID（历史无主房间，任何登录用户视为 owner）
+
+    返回 False：未登录、未找到房间、且不是 orphan。
+    """
     if not user.is_authenticated:
         return False
     from sqlalchemy import text
@@ -147,7 +186,12 @@ def check_room_owner(room_id: str, user: UserIdentity, db: Session) -> bool:
         text("SELECT creator_id FROM rooms WHERE room_id = :rid"),
         {"rid": room_id},
     ).first()
-    return row is not None and row[0] == user.user_id
+    if row is None:
+        return False
+    creator_id = row[0]
+    if creator_id == ROOM_ORPHAN_CREATOR_ID:
+        return True  # 历史无主房间放行
+    return creator_id == user.user_id
 
 
 def check_activity_owner(activity_id: str, user: UserIdentity, db: Session) -> bool:

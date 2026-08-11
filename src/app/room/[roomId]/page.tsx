@@ -40,6 +40,9 @@ export default function RoomPage() {
   const [generateUsersLoading, setGenerateUsersLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const lastRoundRef = useRef<number>(0);
+  // 远端 SSE 推过来的奖品名称：非创建者的浏览器收到 lottery_drawn 时，本地
+  // 自己可能没填奖品，需要用服务端给的奖品名才能在转盘结束弹窗里正确显示。
+  const remotePrizeNameRef = useRef<string>('');
   const [wheelKey, setWheelKey] = useState(0);
   const [remoteWheelKey, setRemoteWheelKey] = useState(0);
 
@@ -167,6 +170,11 @@ export default function RoomPage() {
             key: String(w.id), name: String(w.name), department: String(w.department || ''),
           }));
           if (candidates.length > 0 && winners.length > 0) {
+            // 同步远端的 roundNumber / prizeName，否则转盘结束会用旧值导致
+            // 历史中奖名单关联错乱、奖品名变成本地自己填的（可能为空）。
+            const r = Number(data.roundNumber);
+            if (Number.isFinite(r) && r > 0) lastRoundRef.current = r;
+            if (typeof data.prizeName === 'string') remotePrizeNameRef.current = data.prizeName;
             setIsSpinning(true);
             setWheelCandidates(candidates);
             setWheelWinners(winners);
@@ -347,9 +355,12 @@ export default function RoomPage() {
   const handleWheelComplete = useCallback(() => {
     const round = lastRoundRef.current;
     const winners = wheelWinners;
+    // 创建者侧用本地填写的奖品名；非创建者通过 SSE 收到的轮次/奖品来自 ref。
+    // 这避免远端观众看到的中奖记录轮次对不上、奖品名变成空串。
+    const effectivePrizeName = prizeName || remotePrizeNameRef.current || undefined;
     const winnersWithUniqueKeys = winners.map((winner, index) => ({
       key: `${winner.key}-round${round}-${index}`,
-      name: winner.name, department: winner.department || '', prizeName: prizeName || undefined,
+      name: winner.name, department: winner.department || '', prizeName: effectivePrizeName,
     }));
     const newAllWinners = [...allWinners, ...winnersWithUniqueKeys];
     setCurrentWinners(winnersWithUniqueKeys);
@@ -360,6 +371,7 @@ export default function RoomPage() {
     setIsSpinning(false);
     setWheelCandidates([]);
     setWheelWinners([]);
+    remotePrizeNameRef.current = '';
     saveToLocalHistory(winnersWithUniqueKeys, round);
   }, [wheelWinners, allWinners, prizeName, saveToLocalHistory]);
 

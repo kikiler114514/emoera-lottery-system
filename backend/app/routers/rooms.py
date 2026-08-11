@@ -154,8 +154,14 @@ def delete_room(
     ).first()
     if not existing:
         raise HTTPException(status_code=404, detail="Room not found")
-    if not user.is_authenticated or existing[0] != user.user_id:
-        raise HTTPException(status_code=403, detail="只有房间创建者才能删除房间")
+    # 与 check_room_owner 对齐：历史无主房间（system:orphan）任何登录用户都能删
+    creator_id = existing[0]
+    if creator_id == auth.ROOM_ORPHAN_CREATOR_ID:
+        if not user.is_authenticated:
+            raise HTTPException(status_code=403, detail="只有房间创建者才能删除房间")
+    else:
+        if not user.is_authenticated or creator_id != user.user_id:
+            raise HTTPException(status_code=403, detail="只有房间创建者才能删除房间")
     result = db.execute(
         text("DELETE FROM rooms WHERE room_id = :rid"),
         {"rid": room_id},

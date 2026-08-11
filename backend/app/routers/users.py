@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,35 @@ from . import events
 from ..schemas import UserRegister
 
 router = APIRouter(tags=["users"])
+
+
+# ── 匿名会话 fingerprint（限同一浏览器在同一房间的报名数）────────────
+# Cookie 名沿用 settings.ANON_FP_COOKIE，便于跨端点保持一致；
+# 同时本地保留常量便于单元测试 / 调试覆盖。
+ANON_FP_COOKIE = "emoera_anon_fp"
+
+
+def _get_or_create_fingerprint(request: Request, response: Response) -> str:
+    """取出已有 fingerprint；没有则生成一个，写入长期 cookie 返回。
+
+    用 cookie 而非 IP 哈希，是因为：
+    - NAT 网络下 IP 不可靠；
+    - 浏览器场景下 cookie 是更稳定且用户可控的"匿名会话标识"。
+    注意：用户清掉 cookie 即可换身份，这与既有"未登录限额"的强度相当，
+    因此足以在内部工具场景下防止"扫一个码就 N 个人混进去"。
+    """
+    fp = request.cookies.get(ANON_FP_COOKIE)
+    if not fp:
+        fp = secrets.token_urlsafe(32)
+        response.set_cookie(
+            key=ANON_FP_COOKIE,
+            value=fp,
+            max_age=getattr(auth.settings, "ANON_FP_COOKIE_MAX_AGE", 86400 * 30),
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+    return fp
 
 
 @router.get("/users")
@@ -38,10 +69,11 @@ def list_users(roomId: str, db: Session = Depends(get_db)):
 def register_user(
     payload: UserRegister,
     request: Request,
+    response: Response,
     user: auth.UserIdentity = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
-    """报名入口（公开，参与者扫码报名用）。未登录限报 1 人。"""
+    """报名入口（公开，参与者扫码报名用）。未登录同会话限报 N 人（默认 1）。"""
     name = (payload.name or "").strip()
     room_id = payload.roomId
     if not name or not room_id:
@@ -61,13 +93,18 @@ def register_user(
     if existing:
         raise HTTPException(status_code=409, detail="User already registered in this room")
 
-    # 未登录用户：限报 1 人
+    # 未登录用户：按"会话 fingerprint + 房间"限 N 人，而不是按"房间内全部参与者"。
+    # 旧实现会用房间总人数做阈值，导致后到的任何未登录扫码都被 403。
     if not user.is_authenticated:
-        user_count = db.execute(
-            text("SELECT COUNT(*) FROM users WHERE room_id = :rid"),
-            {"rid": rid},
+        fingerprint = _get_or_create_fingerprint(request, response)
+        fp_count = db.execute(
+            text(
+                "SELECT COUNT(*) FROM anonymous_participants "
+                "WHERE fingerprint = :fp AND room_id = :rid"
+            ),
+            {"fp": fingerprint, "rid": rid},
         ).scalar()
-        if user_count >= auth.settings.MAX_NONLOGIN_PARTICIPANTS:
+        if fp_count >= auth.settings.MAX_NONLOGIN_PARTICIPANTS:
             raise HTTPException(
                 status_code=403,
                 detail="未登录用户最多报名 1 人，请登录后添加更多",
@@ -79,6 +116,19 @@ def register_user(
         room_id=rid,
     )
     db.add(user_obj)
+    db.flush()  # 立刻拿到 user_obj.id，给 anonymous_participants 引用
+
+    # 记录未登录会话的占用（成功提交后才插入）
+    if not user.is_authenticated:
+        fingerprint = _get_or_create_fingerprint(request, response)
+        db.add(
+            models.AnonymousParticipant(
+                fingerprint=fingerprint,
+                room_id=rid,
+                user_id=user_obj.id,
+            )
+        )
+
     db.execute(
         text("UPDATE rooms SET total_users = total_users + 1 WHERE id = :rid"),
         {"rid": rid},
